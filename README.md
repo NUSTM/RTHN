@@ -10,6 +10,8 @@ Python 3
 Tensorflow 1.8.0
 
 ## Usage
+python prepare_data.py
+
 python RTHN.py
 
 
