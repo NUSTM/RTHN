@@ -6,6 +6,7 @@ The emotion cause extraction (ECE) task aims at discovering the potential causes
 
 ## Dependencies
 Python 3
+
 Tensorflow 1.8.0
 
 ## Usage
