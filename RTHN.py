@@ -61,13 +61,13 @@ def build_model(x, sen_len, doc_len, word_dis, word_embedding, pos_embedding, ke
         senEncode = func.att_var(wordEncode, sen_len, w1, b1, w2)
     senEncode = tf.reshape(senEncode, [-1, FLAGS.max_doc_len, sh2])
     word_dis = tf.reshape(word_dis[:, :, 0, :], [-1, FLAGS.max_doc_len, FLAGS.embedding_dim_pos])
-    senEncode_dis = tf.concat([senEncode, word_dis], axis=2)  # 距离拼在子句上
+    senEncode_dis = tf.concat([senEncode, word_dis], axis=2)
 
     n_feature = 2 * FLAGS.n_hidden + FLAGS.embedding_dim_pos
     out_units = 2 * FLAGS.n_hidden
     batch = tf.shape(senEncode)[0]
     pred_zeros = tf.zeros(([batch, FLAGS.max_doc_len, FLAGS.max_doc_len]))
-    matrix = tf.reshape((1 - tf.eye(FLAGS.max_doc_len)), [1, FLAGS.max_doc_len, FLAGS.max_doc_len]) + pred_zeros  # 构造单位矩阵
+    matrix = tf.reshape((1 - tf.eye(FLAGS.max_doc_len)), [1, FLAGS.max_doc_len, FLAGS.max_doc_len]) + pred_zeros
     pred_assist_list, reg_assist_list, pred_assist_label_list = [], [], []
     if FLAGS.n_layers > 1:
         '''*******GL1******'''
@@ -75,7 +75,7 @@ def build_model(x, sen_len, doc_len, word_dis, word_embedding, pos_embedding, ke
         pred_assist, reg_assist = senEncode_softmax(senEncode, 'softmax_assist_w1', 'softmax_assist_b1', out_units, doc_len)
 
         pred_assist_label = tf.cast(tf.reshape(tf.argmax(pred_assist, axis=2), [-1, 1, FLAGS.max_doc_len]), tf.float32)
-        pred_assist_label = (pred_assist_label + pred_zeros) * matrix  # 屏蔽预测为1的标签
+        pred_assist_label = (pred_assist_label + pred_zeros) * matrix
 
         pred_assist_label_list.append(pred_assist_label)
         pred_assist_list.append(pred_assist)
@@ -107,7 +107,6 @@ def build_model(x, sen_len, doc_len, word_dis, word_embedding, pos_embedding, ke
 
 
 def run():
-    # 将结果输出到log文件中
     if FLAGS.log_file_name:
         sys.stdout = open(FLAGS.log_file_name, 'w')
     tf.reset_default_graph()
@@ -181,7 +180,7 @@ def run():
             max_f1 = 0.0
             print('train docs: {}    test docs: {}'.format(len(tr_y), len(te_y)))
 
-            '''预训练全局标签'''
+            '''PreTrain Global Label'''
             for layer in range(FLAGS.n_layers - 1):
                 if layer == 0:
                     training_iter = FLAGS.training_iter
