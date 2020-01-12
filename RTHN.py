@@ -37,9 +37,9 @@ tf.app.flags.DEFINE_float('lr_main', 0.001, 'learning rate')
 tf.app.flags.DEFINE_float('keep_prob1', 0.5, 'word embedding training dropout keep prob')
 tf.app.flags.DEFINE_float('keep_prob2', 1.0, 'softmax layer dropout keep prob')
 tf.app.flags.DEFINE_float('l2_reg', 1e-5, 'l2 regularization')
-tf.app.flags.DEFINE_integer('run_times', 1, 'run times of this model')
+tf.app.flags.DEFINE_integer('run_times', 10, 'run times of this model')
 tf.app.flags.DEFINE_integer('num_heads', 5, 'the num heads of attention')
-tf.app.flags.DEFINE_integer('n_layers', 1, 'the layers of transformer beside main')
+tf.app.flags.DEFINE_integer('n_layers', 2, 'the layers of transformer beside main')
 
 
 def build_model(x, sen_len, doc_len, word_dis, word_embedding, pos_embedding, keep_prob1, keep_prob2, RNN=func.biLSTM):
@@ -61,12 +61,14 @@ def build_model(x, sen_len, doc_len, word_dis, word_embedding, pos_embedding, ke
         senEncode = func.att_var(wordEncode, sen_len, w1, b1, w2)
     senEncode = tf.reshape(senEncode, [-1, FLAGS.max_doc_len, sh2])
     word_dis = tf.reshape(word_dis[:, :, 0, :], [-1, FLAGS.max_doc_len, FLAGS.embedding_dim_pos])
-    senEncode_dis = tf.concat([senEncode, word_dis], axis=2)
+    senEncode_dis = tf.concat([senEncode, word_dis], axis=2)  # 距离拼在子句上
 
     n_feature = 2 * FLAGS.n_hidden + FLAGS.embedding_dim_pos
     out_units = 2 * FLAGS.n_hidden
     batch = tf.shape(senEncode)[0]
     pred_zeros = tf.zeros(([batch, FLAGS.max_doc_len, FLAGS.max_doc_len]))
+    pred_ones = tf.ones_like(pred_zeros)
+    pred_two = tf.fill([batch, FLAGS.max_doc_len, FLAGS.max_doc_len], 2.)
     matrix = tf.reshape((1 - tf.eye(FLAGS.max_doc_len)), [1, FLAGS.max_doc_len, FLAGS.max_doc_len]) + pred_zeros
     pred_assist_list, reg_assist_list, pred_assist_label_list = [], [], []
     if FLAGS.n_layers > 1:
@@ -75,7 +77,14 @@ def build_model(x, sen_len, doc_len, word_dis, word_embedding, pos_embedding, ke
         pred_assist, reg_assist = senEncode_softmax(senEncode, 'softmax_assist_w1', 'softmax_assist_b1', out_units, doc_len)
 
         pred_assist_label = tf.cast(tf.reshape(tf.argmax(pred_assist, axis=2), [-1, 1, FLAGS.max_doc_len]), tf.float32)
+        # masked the prediction at the current position
+        pred_assist_label = pred_assist_label * pred_two - pred_ones
         pred_assist_label = (pred_assist_label + pred_zeros) * matrix
+        # feedforward
+        w_for = func.get_weight_varible('w_for1', [FLAGS.max_doc_len, FLAGS.max_doc_len])
+        b_for = func.get_weight_varible('b_for1', [FLAGS.max_doc_len])
+        pred_assist_label = tf.tanh(tf.matmul(tf.reshape(pred_assist_label, [-1, FLAGS.max_doc_len]), w_for) + b_for)
+        pred_assist_label = tf.reshape(pred_assist_label, [batch, FLAGS.max_doc_len, FLAGS.max_doc_len])
 
         pred_assist_label_list.append(pred_assist_label)
         pred_assist_list.append(pred_assist)
@@ -88,9 +97,17 @@ def build_model(x, sen_len, doc_len, word_dis, word_embedding, pos_embedding, ke
 
         pred_assist, reg_assist = senEncode_softmax(senEncode, 'softmax_assist_w' + str(i), 'softmax_assist_b' + str(i), out_units, doc_len)
         pred_assist_label = tf.cast(tf.reshape(tf.argmax(pred_assist, axis=2), [-1, 1, FLAGS.max_doc_len]), tf.float32)
+        # masked the prediction at the current position
+        pred_assist_label = pred_assist_label * pred_two - pred_ones
         pred_assist_label = (pred_assist_label + pred_zeros) * matrix
+        # feedforward
+        w_for = func.get_weight_varible('w_for' + str(i), [FLAGS.max_doc_len, FLAGS.max_doc_len])
+        b_for = func.get_weight_varible('b_for' + str(i), [FLAGS.max_doc_len])
+        pred_assist_label = tf.tanh(tf.matmul(tf.reshape(pred_assist_label, [-1, FLAGS.max_doc_len]), w_for) + b_for)
+        pred_assist_label = tf.reshape(pred_assist_label, [batch, FLAGS.max_doc_len, FLAGS.max_doc_len])
+
         pred_assist_label_list.append(pred_assist_label)
-        pred_assist_label = tf.reduce_sum(pred_assist_label_list, axis=0)
+        pred_assist_label = tf.divide(tf.reduce_sum(pred_assist_label_list, axis=0), i)
 
         pred_assist_list.append(pred_assist)
         reg_assist_list.append(reg_assist)
@@ -180,7 +197,7 @@ def run():
             max_f1 = 0.0
             print('train docs: {}    test docs: {}'.format(len(tr_y), len(te_y)))
 
-            '''PreTrain Global Label'''
+            '''*********GP*********'''
             for layer in range(FLAGS.n_layers - 1):
                 if layer == 0:
                     training_iter = FLAGS.training_iter
@@ -241,14 +258,9 @@ def run():
                     prob_list_pr.append(pred_prob[i][j][1])
                     y_label.append(true_y[i][j])
 
-            print("*********prob_list_pr", len(prob_list_pr))
-            print("*********y_label", len(y_label))
-
             p_list.append(max_p)
             r_list.append(max_r)
             f1_list.append(max_f1)
-        pk.dump(np.array(prob_list_pr), open('/home/mrzhang/IJCAI_SourceCode/data/RTHN_pred_PR.pk', 'wb'))
-        pk.dump(np.array(y_label), open('/home/mrzhang/IJCAI_SourceCode/data/y_label_PR.pk', 'wb'))
         print("running time: ", str((end_time - start_time) / 60.))
         print_training_info()
         p, r, f1 = map(lambda x: np.array(x).mean(), [p_list, r_list, f1_list])
@@ -298,7 +310,7 @@ def trans_func(senEncode_dis, senEncode, n_feature, out_units, scope_var):
 
 def main(_):
     grid_search = {}
-    params = {"n_layers": [3]}
+    params = {"n_layers": [4, 5]}
 
     params_search = list(ParameterGrid(params))
 
